@@ -21,10 +21,10 @@ def get_music(keyword):
         items = soup.select('.card-text .row')
         if len(items) > 1:
             row = items[1]
-            song = row.select('.col-5 a')[0].get_text().strip()
-            singer = row.select('.col-4')[0].get_text().strip()
-
-            a = row.select('.col-3 a')
+            song = row.select('.col-8 .music-title')[0].get_text().strip()
+            singer = row.select('.col-8 .text-jade')[0].get_text().strip()
+            
+            a = row.select('.col-4 a')
             href = a[0].attrs['href']
 
             response = session.get(f'{api}{href}')
