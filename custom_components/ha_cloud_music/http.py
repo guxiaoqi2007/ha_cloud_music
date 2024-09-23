@@ -1,18 +1,21 @@
 import base64
 import requests
+import logging
 from urllib.parse import parse_qsl, quote
 from homeassistant.components.http import HomeAssistantView
 from aiohttp import web
 from .models.music_info import MusicSource
 from .manifest import manifest
+_LOGGER = logging.getLogger(__name__)
 
 DOMAIN = manifest.domain
 
 class HttpView(HomeAssistantView):
 
     url = "/cloud_music/url"
-    name = f"cloud_music:url"
+    name = "cloud_music:url"
     requires_auth = False
+    cors_allowed = True
 
     play_key = None
     play_url = None
@@ -37,11 +40,15 @@ class HttpView(HomeAssistantView):
 
         not_found_tips = quote(f'当前没有找到编号是{id}，歌名为{song}，作者是{singer}的播放链接')
         play_url = f'http://fanyi.baidu.com/gettts?lan=zh&text={not_found_tips}&spd=5&source=web'
-
+        headers={
+                "Cache-Control": "no-cache, private",
+                "Server": "nginx",
+                "Strict-Transport-Security": "max-age=31536000",
+        }
         # 缓存KEY
         play_key = f'{id}{song}{singer}{source}'
         if self.play_key == play_key:
-            return web.HTTPFound(self.play_url)
+           return web.HTTPFound(self.play_url,headers=headers)
 
         source = int(source)
         if source == MusicSource.PLAYLIST.value \
@@ -53,7 +60,8 @@ class HttpView(HomeAssistantView):
             if url is not None:
                 # 收费音乐
                 if fee == 1:
-                    url = await hass.async_add_executor_job(self.getVipMusic, id)
+                    url = await hass.async_add_executor_job(self.getVipMusic_gdstudio, id)
+                    _LOGGER.warning(f'获取到收费音乐：{url}')
                     if url is None or url == '':
                         result = await cloud_music.async_music_source(song, singer)
                         if result is not None:
@@ -72,8 +80,17 @@ class HttpView(HomeAssistantView):
 
         self.play_key = play_key
         self.play_url = play_url     
+        #play_url = "http://192.168.6.168:888/123.mp3"
         # 重定向到可播放链接
-        return web.HTTPFound(play_url)
+        content_type="text/html; charset=UTF-8"
+
+        headers={
+                "Cache-Control": "no-cache, private",
+                "Server": "nginx",
+                "Strict-Transport-Security": "max-age=31536000",
+        }
+        headers_to_remove = ["Referrer-Policy", "X-Content-Type-Options","X-Frame-Options"]
+        return web.HTTPFound(play_url,headers=headers)
 
     # VIP音乐资源
     def getVipMusic(self, id):
@@ -87,3 +104,16 @@ class HttpView(HomeAssistantView):
             return data.get('url')
         except Exception as ex:
             pass
+    def getVipMusic_gdstudio(self, id):
+        try:
+            res = requests.get('https://music-api.gdstudio.xyz/api.php', params={
+             'types': 'url',
+             'source': 'netease',
+             'id': id,
+             'br': ['999', '320'][1]
+            })
+            data = res.json()
+            return data.get('url')
+        except Exception as ex:
+            pass
+    

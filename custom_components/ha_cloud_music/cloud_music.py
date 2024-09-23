@@ -1,4 +1,11 @@
-import uuid, time, logging, os, hashlib, aiohttp, requests, base64
+import uuid
+import time
+import logging
+import os
+import hashlib
+import aiohttp
+import requests
+import base64
 from urllib.parse import quote
 from homeassistant.helpers.network import get_url
 from .http_api import http_get, http_cookie
@@ -7,20 +14,24 @@ from homeassistant.helpers.storage import STORAGE_DIR
 from homeassistant.util.json import load_json
 from homeassistant.helpers.json import save_json
 from http.cookies import SimpleCookie
+from aiohttp import web
 
 from .browse_media import (
-    async_browse_media, 
-    async_play_media, 
-    async_media_previous_track, 
+    async_browse_media,
+    async_play_media,
+    async_media_previous_track,
     async_media_next_track
 )
 
 from .music_parser import get_music
 
+
 def md5(data):
     return hashlib.md5(data.encode('utf-8')).hexdigest()
 
+
 _LOGGER = logging.getLogger(__name__)
+
 
 class CloudMusic():
 
@@ -33,7 +44,8 @@ class CloudMusic():
         self.async_play_media = async_play_media
         self.async_media_previous_track = async_media_previous_track
         self.async_media_next_track = async_media_next_track
-
+        self.play_key = None
+        self.play_url = None
         self.userinfo = {}
         # 读取用户信息
         self.userinfo_filepath = self.get_storage_dir('cloud_music.userinfo')
@@ -86,7 +98,7 @@ class CloudMusic():
         for item in arr:
             x = item.strip()
             if x == '' or x.startswith('Max-Age=') or x.startswith('Expires=') \
-                or x.startswith('Path=') or x.startswith('HTTPOnly'):
+                    or x.startswith('Path=') or x.startswith('HTTPOnly'):
                 continue
             kv = x.split('=')
             if kv[1] != '':
@@ -120,9 +132,69 @@ class CloudMusic():
         base_url = get_url(self.hass, prefer_external=True)
         if singer is None:
             singer = ''
-        encoded_data = base64.b64encode(f'id={id}&song={quote(song)}&singer={quote(singer)}&source={source}'.encode('utf-8'))
+        encoded_data = base64.b64encode(f'id={id}&song={quote(song)}&singer={
+                                        quote(singer)}&source={source}'.encode('utf-8'))
         url_encoded_data = quote(encoded_data.decode('utf-8'), safe='-_')
         return f'{base_url}/cloud_music/url?data={url_encoded_data}'
+
+    async def async_get_play_url(self, id, song, singer, source):
+
+        not_found_tips = quote(f'当前没有找到编号是{id}，歌名为{song}，作者是{singer}的播放链接')
+        play_url = f'http://fanyi.baidu.com/gettts?lan=zh&text={
+            not_found_tips}&spd=5&source=web'
+
+        url, fee = await self.song_url(id)
+        # _LOGGER.warning(f'XXX{url} {fee} {id} {song} {singer}')
+
+        play_key = f'{id}{song}{singer}{source}'
+        if self.play_key == play_key:
+            return self.play_url
+        source = int(source)
+        if source == MusicSource.PLAYLIST.value \
+                or source == MusicSource.ARTISTS.value \
+                or source == MusicSource.DJRADIO.value \
+                or source == MusicSource.CLOUD.value:
+            # 获取播放链接
+            url, fee = await self.song_url(id)
+
+            if url is not None:
+                if fee == 1:
+                    url = await self.hass.async_add_executor_job(self.getVipMusic_gdstudio, id)
+                    _LOGGER.warning(f'获取到收费音乐：{url}')
+                    if url is None or url == '':
+                       result = await self.async_music_source(song, singer)
+                       if result is not None:
+                          url = result.url
+
+                play_url = url
+
+            else:
+                # 从云盘里获取
+                url = await self.cloud_song_url(id)
+                if url is not None:
+                    play_url = url
+                else:
+                    result = await self.async_music_source(song, singer)
+                    if result is not None:
+                        play_url = result.url
+
+        self.play_key = play_key
+        self.play_url = play_url
+
+        return self.play_url
+
+    def getVipMusic_gdstudio(self, id):
+        try:
+            res = requests.get('https://music-api.gdstudio.xyz/api.php', params={
+                'types': 'url',
+                'source': 'netease',
+                'id': id,
+                'br': ['999', '320'][1]
+            })
+            data = res.json()
+            return data.get('url')
+        except Exception as ex:
+            pass
 
     # 网易云音乐接口
     async def netease_cloud_music(self, url):
@@ -134,7 +206,8 @@ class CloudMusic():
                 self.notification(msg)
             elif code == 302:
                 if self.userinfo.get('uid') is not None:
-                    self.notification(f'请求数据失败，账号出现异常\n\ncode: {code} \nurl: {url} \n\n这种情况一般是接口问题，和插件没有关系')
+                    self.notification(f'请求数据失败，账号出现异常\n\ncode: {code} \nurl: {
+                                      url} \n\n这种情况一般是接口问题，和插件没有关系')
         return res
 
     # 获取音乐链接
@@ -151,7 +224,8 @@ class CloudMusic():
     async def cloud_song_url(self, id):
         if self.userinfo.get('uid') is not None:
             res = await self.netease_cloud_music(f'/user/cloud')
-            filter_list = list(filter(lambda x:x['simpleSong']['id'] == id, res['data']))
+            filter_list = list(
+                filter(lambda x: x['simpleSong']['id'] == id, res['data']))
             if len(filter_list) > 0:
                 songId = filter_list[0]['songId']
                 url, fee = await self.song_url(songId)
@@ -167,9 +241,12 @@ class CloudMusic():
             singer = item['ar'][0].get('name', '')
             album = item['al']['name']
             duration = item['dt']
-            url = self.get_play_url(id, song, singer, MusicSource.PLAYLIST.value)
-            picUrl = item['al'].get('picUrl', 'https://p2.music.126.net/fL9ORyu0e777lppGU3D89A==/109951167206009876.jpg')
-            music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.PLAYLIST.value)
+            url = self.get_play_url(
+                id, song, singer, MusicSource.PLAYLIST.value)
+            picUrl = item['al'].get(
+                'picUrl', 'https://p2.music.126.net/fL9ORyu0e777lppGU3D89A==/109951167206009876.jpg')
+            music_info = MusicInfo(
+                id, song, singer, album, duration, url, picUrl, MusicSource.PLAYLIST.value)
             return music_info
 
         return list(map(format_playlist, res['songs']))
@@ -185,11 +262,13 @@ class CloudMusic():
             singer = mainSong['artists'][0]['name']
             album = item['dj']['brand']
             duration = mainSong['duration']
-            url = self.get_play_url(id, song, singer, MusicSource.DJRADIO.value)
+            url = self.get_play_url(
+                id, song, singer, MusicSource.DJRADIO.value)
             picUrl = item['coverUrl']
-            music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.DJRADIO.value)
+            music_info = MusicInfo(
+                id, song, singer, album, duration, url, picUrl, MusicSource.DJRADIO.value)
             return music_info
-        
+
         return list(map(format_playlist, res['programs']))
 
     # 获取歌手列表
@@ -202,21 +281,24 @@ class CloudMusic():
             singer = item['ar'][0]['name']
             album = item['al']['name']
             duration = item['dt']
-            url = self.get_play_url(id, song, singer, MusicSource.ARTISTS.value)
+            url = self.get_play_url(
+                id, song, singer, MusicSource.ARTISTS.value)
             picUrl = res['artist']['picUrl']
-            music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.ARTISTS.value)
+            music_info = MusicInfo(
+                id, song, singer, album, duration, url, picUrl, MusicSource.ARTISTS.value)
             return music_info
-        
+
         return list(map(format_playlist, res['hotSongs']))
 
     # 获取云盘音乐
     async def async_get_cloud(self):
         res = await self.netease_cloud_music('/user/cloud')
+
         def format_playlist(item):
             id = item['songId']
             song = ''
             singer = ''
-            duration = ''            
+            duration = ''
             album = ''
             picUrl = 'http://p3.music.126.net/ik8RFcDiRNSV2wvmTnrcbA==/3435973851857038.jpg'
 
@@ -236,7 +318,8 @@ class CloudMusic():
                 singer = ''
 
             url = self.get_play_url(id, song, singer, MusicSource.CLOUD.value)
-            music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.CLOUD.value)
+            music_info = MusicInfo(
+                id, song, singer, album, duration, url, picUrl, MusicSource.CLOUD.value)
             return music_info
 
         return list(map(format_playlist, res['data']))
@@ -244,15 +327,19 @@ class CloudMusic():
     # 获取每日推荐歌曲
     async def async_get_dailySongs(self):
         res = await self.netease_cloud_music('/recommend/songs')
+
         def format_playlist(item):
             id = item['id']
             song = item['name']
             singer = item['ar'][0]['name']
-            album = item['al']['name'] 
+            album = item['al']['name']
             duration = item['dt']
-            url = self.get_play_url(id, song, singer, MusicSource.PLAYLIST.value)
-            picUrl = item['al'].get('picUrl', 'https://p2.music.126.net/fL9ORyu0e777lppGU3D89A==/109951167206009876.jpg')
-            music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.PLAYLIST.value)
+            url = self.get_play_url(
+                id, song, singer, MusicSource.PLAYLIST.value)
+            picUrl = item['al'].get(
+                'picUrl', 'https://p2.music.126.net/fL9ORyu0e777lppGU3D89A==/109951167206009876.jpg')
+            music_info = MusicInfo(
+                id, song, singer, album, duration, url, picUrl, MusicSource.PLAYLIST.value)
             return music_info
 
         return list(map(format_playlist, res['data']['dailySongs']))
@@ -266,7 +353,7 @@ class CloudMusic():
 
     # 乐听头条
     async def async_ting_playlist(self, catalog_id):
-        
+
         now = int(time.time())
         if hasattr(self, 'letingtoutiao') == False:
             uid = uuid.uuid4().hex
@@ -279,9 +366,9 @@ class CloudMusic():
         async with aiohttp.ClientSession() as session:
             # 获取token
             if headers['token'] == '' or now > self.letingtoutiao['time']:
-                async with session.get('https://app.leting.io/app/auth?uid=' + 
-                    uid + '&appid=a435325b8662a4098f615a7d067fe7b8&ts=1628297581496&sign=4149682cf40c2bf2efcec8155c48b627&v=v9&channel=huawei', 
-                    headers=headers) as res:
+                async with session.get('https://app.leting.io/app/auth?uid=' +
+                                       uid + '&appid=a435325b8662a4098f615a7d067fe7b8&ts=1628297581496&sign=4149682cf40c2bf2efcec8155c48b627&v=v9&channel=huawei',
+                                       headers=headers) as res:
                     r = await res.json()
                     token = r['data']['token']
                     headers['token'] = token
@@ -290,8 +377,8 @@ class CloudMusic():
                     self.letingtoutiao['headers']['token'] = token
 
             # 获取播放列表
-            async with session.get('https://app.leting.io/app/url/channel?catalog_id=' + 
-                catalog_id + '&size=100&distinct=1&v=v8&channel=xiaomi', headers=headers) as res:
+            async with session.get('https://app.leting.io/app/url/channel?catalog_id=' +
+                                   catalog_id + '&size=100&distinct=1&v=v8&channel=xiaomi', headers=headers) as res:
                 r = await res.json()
 
                 def format_playlist(item):
@@ -302,7 +389,8 @@ class CloudMusic():
                     duration = item['duration']
                     url = item['audio']
                     picUrl = item['source_icon']
-                    music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
+                    music_info = MusicInfo(
+                        id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
                     return music_info
 
                 return list(map(format_playlist, r['data']['data']))
@@ -312,7 +400,8 @@ class CloudMusic():
         if page < 1:
             page = 1
         isAsc = 'true' if asc != 1 else 'false'
-        url = f'https://mobile.ximalaya.com/mobile/v1/album/track?albumId={id}&isAsc={isAsc}&pageId={page}&pageSize={size}'
+        url = f'https://mobile.ximalaya.com/mobile/v1/album/track?albumId={
+            id}&isAsc={isAsc}&pageId={page}&pageSize={size}'
         result = await http_get(url)
         if result['ret'] == 0:
             _list = result['data']['list']
@@ -320,9 +409,11 @@ class CloudMusic():
             if len(_list) > 0:
                 # 获取专辑名称
                 trackId = _list[0]['trackId']
-                url = f'http://mobile.ximalaya.com/v1/track/baseInfo?trackId={trackId}'
+                url = f'http://mobile.ximalaya.com/v1/track/baseInfo?trackId={
+                    trackId}'
                 album_result = await http_get(url)
                 # 格式化列表
+
                 def format_playlist(item):
                     id = item['trackId']
                     song = item['title']
@@ -331,7 +422,8 @@ class CloudMusic():
                     duration = item['duration']
                     url = item['playUrl64']
                     picUrl = item['coverLarge']
-                    music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.XIMALAYA.value)
+                    music_info = MusicInfo(
+                        id, song, singer, album, duration, url, picUrl, MusicSource.XIMALAYA.value)
                     return music_info
 
                 return list(map(format_playlist, _list))
@@ -341,6 +433,7 @@ class CloudMusic():
         result = await http_get(f'https://rapi.qingting.fm/categories/{id}/channels?with_total=true&page={page}&pagesize={size}')
         data = result['Data']
         # 格式化列表
+
         def format_playlist(item):
             id = item['content_id']
             song = item['title']
@@ -354,22 +447,23 @@ class CloudMusic():
             if nowplaying is not None:
                 singer = nowplaying.get('title', song)
 
-            music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
+            music_info = MusicInfo(
+                id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
             return music_info
 
         return list(map(format_playlist, data['items']))
 
     # 搜索音乐播放
     async def async_play_song(self, name):
-        
+
         if '周杰伦' in name:
             result = await self.async_music_source(name)
             if result is not None:
-                return [ result ]
+                return [result]
 
         res = await self.netease_cloud_music(f'/cloudsearch?limit=1&keywords={name}')
         if res['code'] == 200:
-            
+
             songs = res['result']['songs']
             if len(songs) > 0:
                 item = songs[0]
@@ -384,10 +478,11 @@ class CloudMusic():
                 picUrl = self.netease_image_url(al.get('picUrl'))
                 duration = item.get('dt')
 
-                url = self.get_play_url(id, song, singer, MusicSource.PLAYLIST.value)
-                
-                music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
-                return [ music_info ]
+                # url = self.hass.async_create_task(self.async_get_play_url(id, song, singer, MusicSource.PLAYLIST.value))
+                url = await self.async_get_play_url(id, song, singer, MusicSource.PLAYLIST.value)
+                music_info = MusicInfo(
+                    id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
+                return [music_info]
 
     # 歌手
     async def async_play_singer(self, keywords):
@@ -425,6 +520,7 @@ class CloudMusic():
         if ha_music_source is not None:
             music_list = await ha_music_source.async_search_all(name)
             # 格式化列表
+
             def format_playlist(item):
                 id = item['id']
                 song = item['song']
@@ -432,9 +528,11 @@ class CloudMusic():
                 singer = item['singer']
                 duration = 0
                 url = item['url']
-                picUrl = self.netease_image_url('http://p1.music.126.net/6nuYK0CVBFE3aslWtsmCkQ==/109951165472872790.jpg')
+                picUrl = self.netease_image_url(
+                    'http://p1.music.126.net/6nuYK0CVBFE3aslWtsmCkQ==/109951165472872790.jpg')
 
-                music_info = MusicInfo(id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
+                music_info = MusicInfo(
+                    id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
                 return music_info
 
             return list(map(format_playlist, music_list))
@@ -457,7 +555,8 @@ class CloudMusic():
     # 喜马拉雅
     async def async_search_xmly(self, name):
         _list = []
-        url = f'https://m.ximalaya.com/m-revision/page/search?kw={name}&core=all&page=1&rows=5'
+        url = f'https://m.ximalaya.com/m-revision/page/search?kw={
+            name}&core=all&page=1&rows=5'
         res = await http_get(url)
         if res['ret'] == 0:
             result = res['data']['albumViews']
