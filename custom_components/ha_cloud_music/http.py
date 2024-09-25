@@ -61,7 +61,7 @@ class HttpView(HomeAssistantView):
                 # 收费音乐
                 if fee == 1:
                     url = await hass.async_add_executor_job(self.getVipMusic_gdstudio, id)
-                    _LOGGER.warning(f'获取到收费音乐：{url}')
+                    #_LOGGER.warning(f'获取到收费音乐：{url}')
                     if url is None or url == '':
                         result = await cloud_music.async_music_source(song, singer)
                         if result is not None:
@@ -113,7 +113,8 @@ class HttpView(HomeAssistantView):
              'br': ['999', '320'][1]
             })
             data = res.json()
-            return data.get('url')
+            return data.get('url').replace("https", "http")
+            #return data.get('url')
         except Exception as ex:
             pass
     

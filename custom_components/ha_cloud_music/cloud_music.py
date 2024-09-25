@@ -192,7 +192,7 @@ class CloudMusic():
                 'br': ['999', '320'][1]
             })
             data = res.json()
-            return data.get('url')
+            return data.get('url').replace("https", "http")
         except Exception as ex:
             pass
 
@@ -478,8 +478,8 @@ class CloudMusic():
                 picUrl = self.netease_image_url(al.get('picUrl'))
                 duration = item.get('dt')
 
-                # url = self.hass.async_create_task(self.async_get_play_url(id, song, singer, MusicSource.PLAYLIST.value))
-                url = await self.async_get_play_url(id, song, singer, MusicSource.PLAYLIST.value)
+                url = await self.hass.async_add_executor_job(self.get_play_url,id, song, singer, MusicSource.PLAYLIST.value)
+                #url = await self.async_get_play_url(id, song, singer, MusicSource.PLAYLIST.value)
                 music_info = MusicInfo(
                     id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
                 return [music_info]
@@ -517,8 +517,10 @@ class CloudMusic():
     # 音乐搜索
     async def async_search_song(self, name):
         ha_music_source = self.hass.data.get('ha_music_source')
+        
         if ha_music_source is not None:
             music_list = await ha_music_source.async_search_all(name)
+            
             # 格式化列表
 
             def format_playlist(item):
