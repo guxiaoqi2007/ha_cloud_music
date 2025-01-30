@@ -137,64 +137,7 @@ class CloudMusic():
         url_encoded_data = quote(encoded_data.decode('utf-8'), safe='-_')
         return f'{base_url}/cloud_music/url?data={url_encoded_data}'
 
-    async def async_get_play_url(self, id, song, singer, source):
-
-        not_found_tips = quote(f'当前没有找到编号是{id}，歌名为{song}，作者是{singer}的播放链接')
-        play_url = f'http://fanyi.baidu.com/gettts?lan=zh&text={
-            not_found_tips}&spd=5&source=web'
-
-        url, fee = await self.song_url(id)
-        # _LOGGER.warning(f'XXX{url} {fee} {id} {song} {singer}')
-
-        play_key = f'{id}{song}{singer}{source}'
-        if self.play_key == play_key:
-            return self.play_url
-        source = int(source)
-        if source == MusicSource.PLAYLIST.value \
-                or source == MusicSource.ARTISTS.value \
-                or source == MusicSource.DJRADIO.value \
-                or source == MusicSource.CLOUD.value:
-            # 获取播放链接
-            url, fee = await self.song_url(id)
-
-            if url is not None:
-                if fee == 1:
-                    url = await self.hass.async_add_executor_job(self.getVipMusic_gdstudio, id)
-                    _LOGGER.warning(f'获取到收费音乐：{url}')
-                    if url is None or url == '':
-                       result = await self.async_music_source(song, singer)
-                       if result is not None:
-                          url = result.url
-
-                play_url = url
-
-            else:
-                # 从云盘里获取
-                url = await self.cloud_song_url(id)
-                if url is not None:
-                    play_url = url
-                else:
-                    result = await self.async_music_source(song, singer)
-                    if result is not None:
-                        play_url = result.url
-
-        self.play_key = play_key
-        self.play_url = play_url
-
-        return self.play_url
-
-    def getVipMusic_gdstudio(self, id):
-        try:
-            res = requests.get('https://music-api.gdstudio.xyz/api.php', params={
-                'types': 'url',
-                'source': 'netease',
-                'id': id,
-                'br': ['999', '320'][1]
-            })
-            data = res.json()
-            return data.get('url').replace("https", "http")
-        except Exception as ex:
-            pass
+    
 
     # 网易云音乐接口
     async def netease_cloud_music(self, url):
@@ -218,6 +161,7 @@ class CloudMusic():
         # 0：免费
         # 1：收费
         fee = 0 if data['freeTrialInfo'] is None else 1
+        _LOGGER.warning(f'{id} {url} {data["freeTrialInfo"]}')
         return url, fee
 
     # 获取云盘音乐链接
@@ -478,8 +422,8 @@ class CloudMusic():
                 picUrl = self.netease_image_url(al.get('picUrl'))
                 duration = item.get('dt')
 
-                url = await self.hass.async_add_executor_job(self.get_play_url,id, song, singer, MusicSource.PLAYLIST.value)
-                #url = await self.async_get_play_url(id, song, singer, MusicSource.PLAYLIST.value)
+                #url = self.hass.async_create_task(self.async_get_play_url(id, song, singer, MusicSource.PLAYLIST.value))
+                url = self.get_play_url(id, song, singer, MusicSource.PLAYLIST.value)
                 music_info = MusicInfo(
                     id, song, singer, album, duration, url, picUrl, MusicSource.URL.value)
                 return [music_info]
@@ -517,10 +461,8 @@ class CloudMusic():
     # 音乐搜索
     async def async_search_song(self, name):
         ha_music_source = self.hass.data.get('ha_music_source')
-        
         if ha_music_source is not None:
             music_list = await ha_music_source.async_search_all(name)
-            
             # 格式化列表
 
             def format_playlist(item):

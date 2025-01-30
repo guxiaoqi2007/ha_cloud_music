@@ -18,6 +18,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data = entry.data
     api_url = data.get(CONF_URL)
     hass.data['cloud_music'] = CloudMusic(hass, api_url)
+    
+    hass.data['enable_save_local'] = entry.data.get('enable_save_local',True)
+    hass.data['save_local_path'] = entry.data.get('save_local_path','umusic')
 
     hass.http.register_view(HttpView)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

@@ -41,7 +41,11 @@ class SimpleConfigFlow(ConfigFlow, domain=DOMAIN):
             user_input = {}
 
         DATA_SCHEMA = vol.Schema({
-            vol.Required(CONF_URL, default=user_input.get(CONF_URL)): str
+            vol.Required(CONF_URL, default=user_input.get(CONF_URL)): str,
+            vol.Optional('enable_save_local', default=True): selector({
+            "boolean": {}
+            }) ,
+            vol.Optional('save_local_path', default="umusic"): str
         })
         return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
 
@@ -61,11 +65,19 @@ class OptionsFlowHandler(OptionsFlow):
         options = self.config_entry.options
         errors = {}
         if user_input is not None:
+            current_data = dict(self.config_entry.data)
+            current_data['enable_save_local'] = user_input.get('enable_save_local')
+            current_data['save_local_path'] = user_input.get('save_local_path')
+            self.hass.config_entries.async_update_entry(
+                         self.config_entry,
+                         data = current_data,
+                     )
             return self.async_create_entry(title='', data=user_input)
         
         media_states = self.hass.states.async_all('media_player')
+        
         media_entities = []
-
+        save_flag = self.hass.data['enable_save_local'] 
         for state in media_states:
             friendly_name = state.attributes.get('friendly_name')
             platform = state.attributes.get('platform')
@@ -76,12 +88,16 @@ class OptionsFlowHandler(OptionsFlow):
                 media_entities.append({ 'label': value, 'value': entity_id })
 
         DATA_SCHEMA = vol.Schema({
-            vol.Required('media_player', default=options.get('media_player')): selector({
+            vol.Optional('media_player', default=options.get('media_player')): selector({
                 "select": {
                     "options": media_entities,
                     "multiple": True
                 }
-            })            
+            }),
+             vol.Optional('enable_save_local', default=save_flag): selector({
+            "boolean": {}
+            }),
+            vol.Optional('save_local_path', default=self.config_entry.data['save_local_path']): str
         })
         return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA, errors=errors)
         

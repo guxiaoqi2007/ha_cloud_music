@@ -735,6 +735,9 @@ async def async_play_media(media_player, cloud_music, media_content_id):
         play_item = await media_source.async_resolve_media(
             hass, media_content_id, media_player.entity_id
         )
+        #gu
+        ls = async_process_play_media_url(hass, play_item.url)
+        _LOGGER.warning(f"媒体连接{ls}")
         return async_process_play_media_url(hass, play_item.url)
 
     # 判断是否云音乐协议
