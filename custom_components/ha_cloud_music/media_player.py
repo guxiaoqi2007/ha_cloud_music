@@ -4,33 +4,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.components.media_player import MediaPlayerEntity, MediaPlayerDeviceClass, MediaPlayerEntityFeature
-from homeassistant.components.media_player.const import (
-    SUPPORT_TURN_OFF,
-    SUPPORT_TURN_ON,
-    SUPPORT_VOLUME_STEP,
-    SUPPORT_VOLUME_SET,
-    SUPPORT_VOLUME_MUTE,
-    SUPPORT_SELECT_SOURCE,
-    SUPPORT_PLAY_MEDIA,
-    SUPPORT_PLAY,
-    SUPPORT_PAUSE,
-    SUPPORT_SEEK,
-    SUPPORT_CLEAR_PLAYLIST,
-    SUPPORT_SHUFFLE_SET,
-    SUPPORT_REPEAT_SET,
-    SUPPORT_NEXT_TRACK,
-    SUPPORT_PREVIOUS_TRACK,
-    MEDIA_TYPE_ALBUM,
-    MEDIA_TYPE_ARTIST,
-    MEDIA_TYPE_CHANNEL,
-    MEDIA_TYPE_EPISODE,
-    MEDIA_TYPE_MOVIE,
-    MEDIA_TYPE_PLAYLIST,
-    MEDIA_TYPE_SEASON,
-    MEDIA_TYPE_TRACK,
-    MEDIA_TYPE_TVSHOW,
-)
+from homeassistant.components.media_player import MediaPlayerEntity, MediaPlayerDeviceClass, MediaPlayerEntityFeature,MediaPlayerState,MediaType
+
 from homeassistant.const import (
     CONF_TOKEN, 
     CONF_URL,
@@ -48,9 +23,9 @@ DOMAIN = manifest.domain
 
 _LOGGER = logging.getLogger(__name__)
 
-SUPPORT_FEATURES = SUPPORT_VOLUME_STEP | SUPPORT_VOLUME_MUTE | SUPPORT_VOLUME_SET | \
-    SUPPORT_PLAY_MEDIA | SUPPORT_PLAY | SUPPORT_PAUSE | SUPPORT_PREVIOUS_TRACK | SUPPORT_NEXT_TRACK | \
-    MediaPlayerEntityFeature.BROWSE_MEDIA | SUPPORT_SEEK | SUPPORT_CLEAR_PLAYLIST | SUPPORT_SHUFFLE_SET | SUPPORT_REPEAT_SET
+SUPPORT_FEATURES = MediaPlayerEntityFeature.VOLUME_STEP | MediaPlayerEntityFeature.VOLUME_MUTE | MediaPlayerEntityFeature.VOLUME_SET | \
+    MediaPlayerEntityFeature.PLAY_MEDIA | MediaPlayerEntityFeature.PLAY | MediaPlayerEntityFeature.PAUSE | MediaPlayerEntityFeature.PREVIOUS_TRACK | MediaPlayerEntityFeature.NEXT_TRACK | \
+    MediaPlayerEntityFeature.BROWSE_MEDIA | MediaPlayerEntityFeature.SEEK | MediaPlayerEntityFeature.CLEAR_PLAYLIST | MediaPlayerEntityFeature.SHUFFLE_SET | MediaPlayerEntityFeature.REPEAT_SET
 
 # 定时器时间
 TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=2)
@@ -94,7 +69,7 @@ class CloudMusicMediaPlayer(MediaPlayerEntity):
         self.source_media_player = source_media_player
         self._attr_name = f'{manifest.name} {source_media_player.split(".")[1]}'
         self._attr_unique_id = f'{manifest.domain}{source_media_player}'
-        self._attr_state =  STATE_ON
+        self._attr_state =  MediaPlayerState.ON
         self._attr_volume_level = 1
         self._attr_repeat = 'all'
         self._attr_shuffle = False
@@ -105,7 +80,7 @@ class CloudMusicMediaPlayer(MediaPlayerEntity):
 
     def interval(self, now):
         # 暂停时不更新
-        if self._attr_state == STATE_PAUSED:
+        if self._attr_state == MediaPlayerState.PAUSED:
             return
 
         media_player = self.media_player
@@ -119,14 +94,14 @@ class CloudMusicMediaPlayer(MediaPlayerEntity):
                 # 判断音乐总时长
                 if self.before_state['media_duration'] > 0 and self.before_state['media_duration'] - self.before_state['media_duration'] <= 5:
                     # 判断源音乐播放器状态
-                    if self.before_state['state'] == STATE_PLAYING and self.current_state == STATE_IDLE:
+                    if self.before_state['state'] == MediaPlayerState.PLAYING and self.current_state == MediaPlayerState.IDLE:
                         self.hass.create_task(self.async_media_next_track())
                         self.before_state = None
                         return
 
                 # 源播放器空闲 & 当前正在播放
-                if self.before_state['media_duration'] == 0 and self.before_state['media_position'] == 0 and self.current_state == STATE_IDLE \
-                    and self._attr_media_duration == 0 and self._attr_media_position == 0 and self._attr_state == STATE_PLAYING:
+                if self.before_state['media_duration'] == 0 and self.before_state['media_position'] == 0 and self.current_state == MediaPlayerState.IDLE \
+                    and self._attr_media_duration == 0 and self._attr_media_position == 0 and self._attr_state == MediaPlayerState.PLAYING:
                         self.hass.create_task(self.async_media_next_track())
                         self.before_state = None
                         return
@@ -186,7 +161,7 @@ class CloudMusicMediaPlayer(MediaPlayerEntity):
 
     async def async_play_media(self, media_type, media_id, **kwargs):
 
-        self._attr_state = STATE_PAUSED
+        self._attr_state = MediaPlayerState.PAUSED
         
         media_content_id = media_id
         result = await self.cloud_music.async_play_media(self, self.cloud_music, media_id)
@@ -206,16 +181,16 @@ class CloudMusicMediaPlayer(MediaPlayerEntity):
             'media_content_id': media_content_id,
             'media_content_type': 'music'
         })
-        self._attr_state = STATE_PLAYING
+        self._attr_state = MediaPlayerState.PLAYING
 
         self.before_state = None
 
     async def async_media_play(self):
-        self._attr_state = STATE_PLAYING
+        self._attr_state = MediaPlayerState.PLAYING
         await self.async_call('media_play')
 
     async def async_media_pause(self):
-        self._attr_state = STATE_PAUSED
+        self._attr_state = MediaPlayerState.PAUSED
         await self.async_call('media_pause')
 
     async def async_set_repeat(self, repeat):

@@ -49,9 +49,10 @@ class HttpView(HomeAssistantView):
         source = query.get('source')
         song = query.get('song')
         singer = query.get('singer')
+        _LOGGER.debug(f'歌曲信息：{query}')
 
-        save_path = f'/media/{tmp_save_path}/{singer}/{id}-{song}.mp3'
-        play_path = f'/media/local/{tmp_save_path}/{singer}/{id}-{song}.mp3'
+        save_path = f'/media/{tmp_save_path}/{singer}/{singer}-{song}.mp3'
+        play_path = f'/media/local/{tmp_save_path}/{singer}/{singer}-{song}.mp3'
 
         not_found_tips = quote(f'当前没有找到编号是{id}，歌名为{song}，作者是{singer}的播放链接')
         play_url = f'http://fanyi.baidu.com/gettts?lan=zh&text={not_found_tips}&spd=5&source=web'
@@ -68,7 +69,7 @@ class HttpView(HomeAssistantView):
                 or source == MusicSource.CLOUD.value:
             # 获取播放链接
             url, fee = await cloud_music.song_url(id)
-            _LOGGER.warning(f'歌曲播放链接: {url}')
+            _LOGGER.debug(f'歌曲播放链接: {url}')
             if url is not None:
                 # 收费音乐
                 if os.path.exists(save_path):
@@ -77,7 +78,7 @@ class HttpView(HomeAssistantView):
                 else:
                  if fee == 1:
                     url = await hass.async_add_executor_job(self.getVipMusic_gdstudio, id)
-                    _LOGGER.warning(f'获取到收费音乐：{url}')
+                    #_LOGGER.debug(f'获取到收费音乐：{url}')
                     
                     if url is None or url == '':
                         result = await cloud_music.async_music_source(song, singer)
@@ -93,9 +94,8 @@ class HttpView(HomeAssistantView):
                 if url is not None:
                     play_url = url
                 else:
-                    _LOGGER.warning(f'没有找到歌曲：{song}，作者：{singer}')
                     result = await cloud_music.async_music_source(song, singer)
-                    _LOGGER.warning(f'歌曲：{result.url}')
+                    _LOGGER.debug(f'歌曲：{result.url}')
                     if result is not None:
                         play_url = result.url
         
@@ -139,7 +139,7 @@ class HttpView(HomeAssistantView):
              'types': 'url',
              'source': 'netease',
              'id': id,
-             'br': ['999', '128'][1]
+             'br': ['999', '320'][1]
             })
             data = res.json()
             return data.get('url').replace("https", "http")
@@ -150,7 +150,7 @@ class HttpView(HomeAssistantView):
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
             if os.path.exists(save_path):
-                _LOGGER.warning(f"文件已存在: {save_path}")
+                _LOGGER.debug(f"文件已存在: {save_path}")
                 return 1
                 
             async with ClientSession() as session:
@@ -165,7 +165,7 @@ class HttpView(HomeAssistantView):
                             if not chunk:
                                 break
                             await file.write(chunk)
-            _LOGGER.warning(f"音频文件已成功下载并保存到 {save_path}")
+            _LOGGER.debug(f"音频文件已成功下载并保存到 {save_path}")
         except Exception as ex:
             _LOGGER.error(f"下载音频文件时发生错误: {ex}")
     
